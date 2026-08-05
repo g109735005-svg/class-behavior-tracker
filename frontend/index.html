@@ -6,7 +6,7 @@
   <style>
     body{font-family: Arial, sans-serif;padding:20px}
     .student{border:1px solid #ddd;padding:8px;margin:4px;display:flex;justify-content:space-between}
-    .buttons button{margin-left:6px}
+    .buttons button, .buttons a{margin-left:6px}
     #login, #dashboard{max-width:900px}
   </style>
 </head>
@@ -91,72 +91,95 @@ async function showDashboard(){
   }
 }
 
-async function loadBehaviorTypes(){ behaviorTypes = await api('/api/behavior-types'); }
+async function loadBehaviorTypes(){
+  try{
+    behaviorTypes = await api('/api/behavior-types');
+    if (!Array.isArray(behaviorTypes)) behaviorTypes = [];
+  }catch(e){ console.error('Failed to load behavior types', e); behaviorTypes = []; }
+}
 
-async function loadMyClass(){ myClass = await api('/api/my-class'); if (!myClass) myClass = { id:1, name:'Class A' }; }
+async function loadMyClass(){
+  try{
+    myClass = await api('/api/my-class');
+    if (!myClass) myClass = { id:1, name:'Class A' };
+  }catch(e){ console.error('Failed to load class', e); myClass = { id:1, name:'Class A' }; }
+}
 
-// Updated loadStudents with export button
+// Updated loadStudents with export button; defensive so export always added
 async function loadStudents(){
-  const list = await api('/api/classes/'+myClass.id+'/students');
-  const container = document.getElementById('studentsList'); container.innerHTML='';
-  list.forEach(s => {
-    const div = document.createElement('div'); div.className='student';
-    div.innerHTML = `<div>${s.student_no} - ${s.name}</div><div class="buttons"></div>`;
-    const btns = div.querySelector('.buttons');
+  try{
+    const list = await api('/api/classes/'+myClass.id+'/students');
+    const container = document.getElementById('studentsList'); container.innerHTML='';
+    list.forEach(s => {
+      try{
+        const div = document.createElement('div'); div.className='student';
+        div.innerHTML = `<div>${s.student_no} - ${s.name}</div><div class="buttons"></div>`;
+        const btns = div.querySelector('.buttons');
 
-    // behavior buttons
-    behaviorTypes.forEach(bt => {
-      const b = document.createElement('button'); b.innerText = bt.label; b.onclick = async ()=>{
-        const note = prompt('備註 (可選)') || '';
-        await api('/api/records','POST',{ class_id: myClass.id, student_id: s.id, behavior_type_id: bt.id, point_delta: bt.default_point, note });
-        alert('已記錄'); loadRecent();
-      };
-      btns.appendChild(b);
+        // behavior buttons (may be empty)
+        try{
+          (behaviorTypes || []).forEach(bt => {
+            const b = document.createElement('button'); b.innerText = bt.label; b.onclick = async ()=>{
+              const note = prompt('備註 (可選)') || '';
+              await api('/api/records','POST',{ class_id: myClass.id, student_id: s.id, behavior_type_id: bt.id, point_delta: bt.default_point, note });
+              alert('已記錄'); loadRecent();
+            };
+            btns.appendChild(b);
+          });
+        }catch(e){ console.error('error rendering behavior buttons', e); }
+
+        // export CSV button (always append)
+        const exportBtn = document.createElement('button');
+        exportBtn.innerText = '匯出紀錄 (Excel)';
+        exportBtn.style.marginLeft = '8px';
+        exportBtn.onclick = async () => {
+          try {
+            const tokenHeader = token ? { 'Authorization': 'Bearer ' + token } : {};
+            const res = await fetch(`/api/classes/${myClass.id}/students/${s.id}/export`, { headers: tokenHeader });
+            if (!res.ok) {
+              const err = await res.json().catch(()=>null);
+              alert('匯出失敗: ' + (err&&err.error ? err.error : res.statusText));
+              return;
+            }
+            const arrayBuffer = await res.arrayBuffer();
+            const bom = new Uint8Array([0xEF,0xBB,0xBF]);
+            const blob = new Blob([bom, arrayBuffer], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `student_${s.id}_records.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+          } catch (e) { console.error(e); alert('匯出發生錯誤'); }
+        };
+        btns.appendChild(exportBtn);
+
+        container.appendChild(div);
+      }catch(e){ console.error('error rendering student row', e); }
     });
-
-    // export CSV button
-    const exportBtn = document.createElement('button');
-    exportBtn.innerText = '匯出紀錄 (Excel)';
-    exportBtn.style.marginLeft = '8px';
-    exportBtn.onclick = async () => {
-      try {
-        const tokenHeader = token ? { 'Authorization': 'Bearer ' + token } : {};
-        const res = await fetch(`/api/classes/${myClass.id}/students/${s.id}/export`, { headers: tokenHeader });
-        if (!res.ok) {
-          const err = await res.json().catch(()=>null);
-          alert('匯出失敗: ' + (err&&err.error ? err.error : res.statusText));
-          return;
-        }
-        const arrayBuffer = await res.arrayBuffer();
-        const bom = new Uint8Array([0xEF,0xBB,0xBF]);
-        const blob = new Blob([bom, arrayBuffer], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `student_${s.id}_records.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-      } catch (e) { console.error(e); alert('匯出發生錯誤'); }
-    };
-    btns.appendChild(exportBtn);
-
-    container.appendChild(div);
-  });
+  }catch(e){
+    console.error('Failed to load students', e);
+    document.getElementById('studentsList').innerText = '載入學生失敗';
+  }
 }
 
 async function loadRecent(){
-  const rows = await api('/api/records?class_id='+myClass.id);
-  const container = document.getElementById('recent'); container.innerHTML='';
-  rows.forEach(r=>{
-    const d = document.createElement('div');
-    d.innerText = `${new Date(r.occurred_at).toLocaleString()} | ${r.behavior_label} (${r.point_delta}) | 學生ID:${r.student_id} | 登記:${r.registrar_name || ''} | ${r.note||''}`;
-    container.appendChild(d);
-  });
+  try{
+    const rows = await api('/api/records?class_id='+myClass.id);
+    const container = document.getElementById('recent'); container.innerHTML='';
+    rows.forEach(r=>{
+      const d = document.createElement('div');
+      d.innerText = `${new Date(r.occurred_at).toLocaleString()} | ${r.behavior_label} (${r.point_delta}) | 學生ID:${r.student_id} | 登記:${r.registrar_name || ''} | ${r.note||''}`;
+      container.appendChild(d);
+    });
+  }catch(e){ console.error('Failed to load recent', e); }
 }
 
 async function loadStudentRecords(){
-  const rows = await api('/api/records');
-  const container = document.getElementById('studentRecords'); container.innerHTML='';
-  rows.forEach(r=>{
-    const d = document.createElement('div'); d.innerText = `${new Date(r.occurred_at).toLocaleString()} | ${r.behavior_label} (${r.point_delta}) | 登記:${r.registrar_name} | ${r.note||''}`;
-    container.appendChild(d);
-  });
+  try{
+    const rows = await api('/api/records');
+    const container = document.getElementById('studentRecords'); container.innerHTML='';
+    rows.forEach(r=>{
+      const d = document.createElement('div'); d.innerText = `${new Date(r.occurred_at).toLocaleString()} | ${r.behavior_label} (${r.point_delta}) | 登記:${r.registrar_name} | ${r.note||''}`;
+      container.appendChild(d);
+    });
+  }catch(e){ console.error('Failed to load student records', e); }
 }
 
 // Auto-login if token in localStorage
