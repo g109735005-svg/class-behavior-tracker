@@ -8,6 +8,7 @@
     .student{border:1px solid #ddd;padding:8px;margin:4px;display:flex;justify-content:space-between}
     .buttons button, .buttons a{margin-left:6px}
     #login, #dashboard{max-width:900px}
+    #debugStatus{background:#fff8e1;border:1px solid #ffe082;padding:8px;margin:8px 0;border-radius:4px}
   </style>
 </head>
 <body>
@@ -32,6 +33,7 @@
       <div>
         <label>選班級（暫預設第一班）</label>
       </div>
+      <div id="debugStatus" aria-live="polite">Debug: 尚未載入學生</div>
       <div id="studentsList"></div>
       <h3>最近紀錄</h3>
       <div id="recent"></div>
@@ -95,6 +97,7 @@ async function loadBehaviorTypes(){
   try{
     behaviorTypes = await api('/api/behavior-types');
     if (!Array.isArray(behaviorTypes)) behaviorTypes = [];
+    console.log('behaviorTypes loaded', behaviorTypes);
   }catch(e){ console.error('Failed to load behavior types', e); behaviorTypes = []; }
 }
 
@@ -102,6 +105,7 @@ async function loadMyClass(){
   try{
     myClass = await api('/api/my-class');
     if (!myClass) myClass = { id:1, name:'Class A' };
+    console.log('myClass', myClass);
   }catch(e){ console.error('Failed to load class', e); myClass = { id:1, name:'Class A' }; }
 }
 
@@ -110,6 +114,12 @@ async function loadStudents(){
   try{
     const list = await api('/api/classes/'+myClass.id+'/students');
     const container = document.getElementById('studentsList'); container.innerHTML='';
+    const debug = document.getElementById('debugStatus');
+    debug.innerText = 'Debug: 載入學生中...';
+    console.log('students list', list);
+    if (!Array.isArray(list) || list.length === 0){
+      debug.innerText = 'Debug: 目前沒有學生或載入失敗';
+    }
     list.forEach(s => {
       try{
         const div = document.createElement('div'); div.className='student';
@@ -153,9 +163,11 @@ async function loadStudents(){
         container.appendChild(div);
       }catch(e){ console.error('error rendering student row', e); }
     });
+    debug.innerText = `Debug: 已載入 ${list.length} 位學生： ` + (list.map(x=>x.name).join(', '));
   }catch(e){
     console.error('Failed to load students', e);
     document.getElementById('studentsList').innerText = '載入學生失敗';
+    const debug = document.getElementById('debugStatus'); debug.innerText = 'Debug: 載入學生發生錯誤 (請看 Console)';
   }
 }
 
