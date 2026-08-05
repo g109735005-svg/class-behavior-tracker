@@ -1,30 +1,37 @@
-# Class Behavior Tracker
+# Deployment & running instructions
 
-這是一個教室行為紀錄系統的範例骨架專案 (MVP)。
+This repo contains a minimal full-stack "Class Behavior Tracker" demo.
 
-內容：
-- backend/: Node.js + Express 範例伺服器
-- frontend/: 簡易靜態頁面示範
-- db/schema.sql: PostgreSQL 資料表定義
+What I implemented for you:
+- Backend: Node.js + Express, JWT auth, PostgreSQL (pg), seeds
+- Frontend: simple HTML/JS app served by backend static files
+- Docker Compose: ready-to-run postgres + app
 
-快速啟動（本機）
+Quick local run using Docker Compose (recommended):
+1. Install Docker & Docker Compose
+2. From repo root run:
+   docker-compose up --build
+3. The backend will be available at http://localhost:4000 and frontend at http://localhost:4000/
 
-1) 後端
-```bash
-cd backend
-npm install
-npm run dev
-```
-後端會在 http://localhost:4000，檢查健康狀態：GET /health
+Default seeded accounts (from init script):
+- admin@example.com / Passw0rd123 (role: admin)
+- teacher@example.com / Passw0rd123 (role: teacher)
 
-2) 前端
-直接開啟 frontend/index.html（或日後換成 React 開發）
+A seeded class (Class A) and 30 students (see students/example_students.csv) are created by the seed script when the DB is initialized.
 
-3) 若要使用 Postgres，可用 Docker Compose（未包含在此範例）。
+If you prefer not to use Docker, run locally:
+1) Start Postgres and create DB `cbt_db`.
+2) Set env variable DATABASE_URL to your DB connection (e.g. postgres://postgres:postgres@localhost:5432/cbt_db)
+3) In backend folder run:
+   npm install
+   node init_seed.js
+   node server.js
 
-下一步我可以：
-- 把後端改為完整 JWT + DB 的實作並建立 migration 與範例資料
-- 加上前端 React 範例並串接 API
-- 加上 Docker Compose 與啟動指令
+Deploy to Render or Railway (high-level):
+1) Create account on Render (https://render.com) or Railway (https://railway.app)
+2) Create a new Postgres managed database
+3) Create a Web Service and connect it to this GitHub repository (select this repo)
+4) Set environment variables: DATABASE_URL, JWT_SECRET
+5) Deploy. Run `node init_seed.js` once (you can do this via an init script or run manually in the service console) to populate seed data.
 
-我已把初始專案上傳到儲存庫。請依需求告訴我要繼續哪一部分的完整實作。
+If you want, I can give step-by-step guidance to connect this repo to Render and finish deployment.
