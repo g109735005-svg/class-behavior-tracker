@@ -143,6 +143,7 @@ if (process.env.RUN_SEED_ON_START === 'true') {
   (async () => {
     try {
       console.log('RUN_SEED_ON_START is true — running seed...');
+      console.log('SEED_MARKER=2');
       const s = require('./init_seed');
       await s.seed();
       console.log('Startup seed finished.');
