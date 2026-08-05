@@ -56,6 +56,9 @@ function roleAllowed(roles){
   };
 }
 
+// load dashboard endpoints (defines routes that use app, authMiddleware, roleAllowed, db)
+require('./dashboard_endpoints')(app, authMiddleware, roleAllowed, db);
+
 // Get behavior types
 app.get('/api/behavior-types', authMiddleware, async (req,res) => {
   const r = await db.query('SELECT id, code, label, default_point FROM behavior_types ORDER BY id');

@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Class Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; }
+    .row { display:flex; gap:24px; }
+    .card { background:#fff; padding:16px; border:1px solid #e0e0e0; border-radius:6px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    canvas { max-width: 800px; }
+    #login { max-width: 420px; margin-bottom: 16px }
+    #recent { max-height: 300px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h2>班級儀表板 (Dashboard)</h2>
+
+  <div id="login" class="card">
+    <div id="loggedOut">
+      <h3>登入 (教師)</h3>
+      <label>帳號 <input id="username" value="teacher@example.com"></label><br>
+      <label>密碼 <input id="password" type="password" value="Passw0rd123"></label><br>
+      <button id="btnLogin">登入</button>
+    </div>
+    <div id="loggedIn" style="display:none">
+      已登入為 <span id="displayName"></span> <button id="btnLogout">登出</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card" style="flex:1">
+      <h4>每日總分 (最近 7 天)</h4>
+      <canvas id="pointsChart"></canvas>
+    </div>
+    <div class="card" style="width:360px">
+      <h4>學生排名 (前 10)</h4>
+      <canvas id="rankChart"></canvas>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:16px">
+    <div class="card" style="flex:1">
+      <h4>行為分佈</h4>
+      <canvas id="pieChart"></canvas>
+    </div>
+    <div class="card" style="width:420px">
+      <h4>最近事件</h4>
+      <div id="recent"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const apiBase = '';
+    function getToken(){ return localStorage.getItem('cbt_token'); }
+    function setToken(t){ localStorage.setItem('cbt_token', t); }
+    function clearToken(){ localStorage.removeItem('cbt_token'); }
+
+    async function apiFetch(path, opts={}){
+      opts.headers = opts.headers || {};
+      const token = getToken();
+      if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+      const res = await fetch(apiBase + path, opts);
+      if (res.status === 401){ clearToken(); showLogin(); throw new Error('unauthorized'); }
+      return res.json();
+    }
+
+    document.getElementById('btnLogin').addEventListener('click', async ()=>{
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      try{
+        const r = await fetch(apiBase + '/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+        if (!r.ok) return alert('登入失敗');
+        const data = await r.json();
+        setToken(data.token);
+        document.getElementById('displayName').innerText = data.user.display_name;
+        showLoggedIn();
+        loadDashboard();
+      }catch(e){ console.error(e); alert('登入錯誤'); }
+    });
+
+    document.getElementById('btnLogout').addEventListener('click', ()=>{ clearToken(); showLogin(); });
+
+    function showLogin(){ document.getElementById('loggedOut').style.display='block'; document.getElementById('loggedIn').style.display='none'; }
+    function showLoggedIn(){ document.getElementById('loggedOut').style.display='none'; document.getElementById('loggedIn').style.display='block'; }
+
+    async function loadDashboard(){
+      try{
+        const meClass = await apiFetch('/api/my-class');
+        if (!meClass) return alert('找不到您的班級');
+        const classId = meClass.id;
+
+        // points
+        const to = new Date().toISOString().slice(0,10);
+        const from = new Date(Date.now() - 6*24*60*60*1000).toISOString().slice(0,10);
+        const points = await apiFetch(`/api/classes/${classId}/dashboard/points?from=${from}&to=${to}`);
+        const labels = points.map(p=>p.date);
+        const values = points.map(p=>Number(p.points));
+        renderPoints(labels, values);
+
+        // rankings
+        const ranks = await apiFetch(`/api/classes/${classId}/dashboard/rankings?limit=10`);
+        renderRanks(ranks.map(r=>r.name), ranks.map(r=>Number(r.points)));
+
+        // behavior breakdown
+        const breakdown = await apiFetch(`/api/classes/${classId}/dashboard/behavior-breakdown`);
+        renderPie(breakdown.map(b=>b.label), breakdown.map(b=>Number(b.points)));
+
+        // recent
+        const recent = await apiFetch(`/api/classes/${classId}/dashboard/recent?limit=50`);
+        renderRecent(recent);
+
+      }catch(e){ console.error(e); }
+    }
+
+    let pointsChart, rankChart, pieChart;
+    function renderPoints(labels, values){
+      const ctx = document.getElementById('pointsChart').getContext('2d');
+      if (pointsChart) pointsChart.destroy();
+      pointsChart = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label:'每日總分', data:values, borderColor:'rgba(75,192,192,1)', backgroundColor:'rgba(75,192,192,0.2)', fill:true }] }, options:{ responsive:true } });
+    }
+    function renderRanks(labels, values){
+      const ctx = document.getElementById('rankChart').getContext('2d');
+      if (rankChart) rankChart.destroy();
+      rankChart = new Chart(ctx, { type:'bar', data:{ labels, datasets:[{ label:'總分', data:values, backgroundColor:'rgba(54,162,235,0.7)'}] }, options:{ indexAxis:'y', responsive:true, scales:{ x:{ beginAtZero:true } } } });
+    }
+    function renderPie(labels, values){
+      const ctx = document.getElementById('pieChart').getContext('2d');
+      if (pieChart) pieChart.destroy();
+      pieChart = new Chart(ctx, { type:'pie', data:{ labels, datasets:[{ data:values, backgroundColor:[ '#4dc9f6','#f67019','#f53794','#537bc4','#acc236','#166a8f' ] }] }, options:{ responsive:true } });
+    }
+    function renderRecent(items){
+      const el = document.getElementById('recent');
+      el.innerHTML = items.map(i=>`<div style="border-bottom:1px solid #eee;padding:8px"><strong>${i.student_name}</strong> ${i.behavior_label} (${i.point_delta>0?'+':''}${i.point_delta}) <div style="font-size:12px;color:#666">${new Date(i.occurred_at).toLocaleString()} by ${i.registrar_name || '系統'}</div><div style="font-size:13px">${i.note || ''}</div></div>`).join('');
+    }
+
+    // on load, check token
+    (function(){
+      const token = getToken();
+      if (token) {
+        // try to get user via /api/my-class
+        apiFetch('/api/my-class').then(c=>{ if (c) { showLoggedIn(); loadDashboard(); } else { showLogin(); } }).catch(()=>showLogin());
+      } else showLogin();
+    })();
+  </script>
+</body>
+</html>
