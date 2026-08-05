@@ -138,5 +138,19 @@ app.get('/api/my-class', authMiddleware, async (req,res) => {
 // Health
 app.get('/health', (req,res) => res.json({ ok: true }));
 
+// If RUN_SEED_ON_START=true in environment, attempt to run seed once during startup
+if (process.env.RUN_SEED_ON_START === 'true') {
+  (async () => {
+    try {
+      console.log('RUN_SEED_ON_START is true — running seed...');
+      const s = require('./init_seed');
+      await s.seed();
+      console.log('Startup seed finished.');
+    } catch (e) {
+      console.error('Startup seed failed:', e);
+    }
+  })();
+}
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Backend listening on ${PORT}`));

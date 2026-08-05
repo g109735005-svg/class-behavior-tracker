@@ -4,7 +4,7 @@ const path = require('path');
 const bcrypt = require('bcrypt');
 const db = require('./db');
 
-async function run() {
+async function seed() {
   try {
     const schema = fs.readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf8');
     console.log('Running schema...');
@@ -48,11 +48,15 @@ async function run() {
     }
 
     console.log('Seeding completed.');
-    process.exit(0);
   } catch (err) {
     console.error('Seed error', err);
-    process.exit(1);
+    throw err;
   }
 }
 
-run();
+// If run directly, execute and exit with code
+if (require.main === module) {
+  seed().then(() => process.exit(0)).catch(() => process.exit(1));
+}
+
+module.exports = { seed };
