@@ -5,6 +5,7 @@ module.exports = function(app, authMiddleware, roleAllowed, db){
   // GET /api/classes/:id/dashboard/behavior-breakdown
   // GET /api/classes/:id/dashboard/recent
   // GET /api/classes/:id/students/:studentId/export  -> CSV export of student's records
+  // GET /api/classes/:id/export -> CSV export of entire class records
 
   const { parseISO, formatISO } = require('date-fns');
 
@@ -166,4 +167,49 @@ module.exports = function(app, authMiddleware, roleAllowed, db){
       res.status(500).json({ error: 'server error' });
     }
   });
+
+  // Export entire class records as CSV
+  app.get('/api/classes/:id/export', authMiddleware, roleAllowed(['teacher','admin']), async (req,res) => {
+    try {
+      const classId = Number(req.params.id);
+
+      // ensure teacher owns class unless admin
+      if (req.user.role === 'teacher'){
+        const c = await db.query('SELECT teacher_id FROM classes WHERE id=$1', [classId]);
+        if (c.rows.length === 0) return res.status(404).json({ error: 'class not found' });
+        if (c.rows[0].teacher_id !== req.user.id) return res.status(403).json({ error: 'forbidden' });
+      }
+
+      const sql = `
+        SELECT s.student_no, s.name as student_name, r.occurred_at, b.label as behavior_label, r.point_delta, r.note, u.display_name as registrar_name
+        FROM behavior_records r
+        LEFT JOIN students s ON s.id = r.student_id
+        LEFT JOIN behavior_types b ON b.id = r.behavior_type_id
+        LEFT JOIN users u ON u.id = r.registrar_id
+        WHERE r.class_id = $1
+        ORDER BY s.student_no::int NULLS LAST, r.occurred_at ASC
+      `;
+      const rows = await db.query(sql, [classId]);
+
+      // build CSV
+      const escape = (v) => {
+        if (v === null || v === undefined) return '';
+        const s = String(v).replace(/"/g, '""');
+        return '"' + s + '"';
+      };
+      const header = ['student_no','student_name','occurred_at','behavior_label','point_delta','note','registrar_name'];
+      const csvRows = [header.join(',')];
+      for (const r of rows.rows){
+        csvRows.push([r.student_no || '', r.student_name || '', (r.occurred_at ? r.occurred_at.toISOString() : ''), r.behavior_label || '', r.point_delta || 0, r.note || '', r.registrar_name || ''].map(escape).join(','));
+      }
+      const csv = csvRows.join('\n');
+      res.setHeader('Content-Type','text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="class_${classId}_records.csv"`);
+      res.send(csv);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'server error' });
+    }
+  });
+
 };
