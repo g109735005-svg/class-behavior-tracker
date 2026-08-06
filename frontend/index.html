@@ -5,16 +5,40 @@
   <title>Class Behavior Tracker</title>
   <style>
     body{font-family: Arial, sans-serif;padding:20px}
-    /* Each student is a single row */
-    .student{border-bottom:1px solid #eee;padding:8px 0;display:flex;justify-content:space-between;align-items:center}
-    .student .left { min-width:260px }
-    .groups { display:flex; gap:12px }
-    .group { border:none;padding:0;background:transparent }
-    .group h4 { display:none }
+    /* 每位學生一列（row） */
+    .student{
+      border-bottom:1px solid #eee;
+      padding:8px 0;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+    }
 
-    /* Buttons arranged horizontally */
-    .buttons { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
-    .buttons button{display:inline-block;margin:0;font-size:13px;padding:6px 8px;border-radius:6px}
+    /* 左側：學生編號與姓名 */
+    .left { min-width:260px }
+
+    /* 按鈕容器：水平排列、必要時換行 */
+    .buttons {
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    /* 按鈕樣式 */
+    .buttons button{
+      display:inline-block;
+      margin:0;
+      padding:6px 8px;
+      font-size:13px;
+      border-radius:6px;
+    }
+
+    /* 隱藏或覆蓋原本 group 樣式（若仍存在） */
+    .groups { display:flex; gap:12px }
+    .group { border:none; padding:0; background:transparent }
+    .group h4 { display:none }
 
     #login, #dashboard{max-width:1200px}
     #debugStatus{background:#fff8e1;border:1px solid #ffe082;padding:8px;margin:8px 0;border-radius:4px}
@@ -333,69 +357,69 @@ async function updateCountsAndMaybeAlert(student, remindedGroup, justAdded){
   }
 }
 
-// Updated loadStudents to render groups and counts
+// 扁平化版 loadStudents：每位學生一列，按鈕水平排列
 async function loadStudents(){
   try{
     const list = await api('/api/classes/'+myClass.id+'/students');
-    const container = document.getElementById('studentsList'); 
-    container.innerHTML='';
+    const container = document.getElementById('studentsList');
+    container.innerHTML = '';
     const debug = document.getElementById('debugStatus');
     debug.innerText = 'Debug: 載入學生中...';
-    console.log('students list', list);
+
     if (!Array.isArray(list) || list.length === 0){
       debug.innerText = 'Debug: 目前沒有學生或載入失敗';
       showToast('未找到學生', 'info');
       return;
     }
 
+    // 建立一個扁平化按鈕清單（根據 behaviorTypes）
+    const flatBehaviorTypes = Array.isArray(behaviorTypes) ? behaviorTypes.slice() : [];
+
     for (const s of list){
-      const div = document.createElement('div'); 
-      div.className='student'; 
-      div.id = 'student-'+s.id;
-      const left = document.createElement('div'); 
-      left.className='left'; 
+      const div = document.createElement('div');
+      div.className = 'student';
+      div.id = 'student-' + s.id;
+
+      // left: student no & name
+      const left = document.createElement('div');
+      left.className = 'left';
       left.innerHTML = `<div><strong>${s.student_no} - ${s.name}</strong></div>`;
-      const groupsWrap = document.createElement('div'); 
-      groupsWrap.className='groups';
 
-      for (const gk of Object.keys(GROUPS)){
-        const g = GROUPS[gk];
-        const groupEl = document.createElement('div'); 
-        groupEl.className='group';
-        const header = document.createElement('h4'); 
-        header.innerHTML = `${g.title} (<span class="group-count" data-group="${gk}">0</span>)`;
-        groupEl.appendChild(header);
-        const btns = document.createElement('div'); 
-        btns.className='buttons';
+      // buttons: one row of all behavior buttons
+      const btns = document.createElement('div');
+      btns.className = 'buttons';
 
-        // create buttons for codes in this group
-        for (const code of g.codes){
-          const bt = (behaviorTypes||[]).find(x=>x.code===code);
-          const label = bt ? bt.label : code;
-          const b = document.createElement('button'); 
-          b.innerText = label;
-          b.onclick = async () => {
-            // determine point delta: if behaviorTypes has default_point use it, else 0
-            const point = bt ? bt.default_point : 0;
-            try{
-              await api('/api/records','POST',{ class_id: myClass.id, student_id: s.id, behavior_type_id: bt ? bt.id : null, point_delta: point, note: null });
-              // after record created, update counts and check reminder rules
-              showToast(`已記錄 ${label}`, 'success');
-              await updateCountsAndMaybeAlert(s, gk, true);
-            }catch(e){ 
-              console.error('record create failed', e); 
+      // For each behavior type, create a button (flattened)
+      for (const bt of flatBehaviorTypes){
+        const b = document.createElement('button');
+        b.innerText = bt.label || bt.code || '行為';
+        b.title = bt.code || '';
+        b.onclick = (async () => {
+          const behaviorType = bt; // capture
+          return async function(){
+            const point = behaviorType.default_point || 0;
+            try {
+              await api('/api/records', 'POST', {
+                class_id: myClass.id,
+                student_id: s.id,
+                behavior_type_id: behaviorType.id,
+                point_delta: point,
+                note: null
+              });
+              showToast(`已記錄 ${behaviorType.label}`, 'success');
+              // update counts (we don't know which group, so trigger full refresh)
+              await updateCountsAndMaybeAlert(s, null, true);
+            } catch (e) {
+              console.error('record create failed', e);
               showToast('記錄失敗', 'error');
             }
           };
-          btns.appendChild(b);
-        }
-
-        groupEl.appendChild(btns);
-        groupsWrap.appendChild(groupEl);
+        })();
+        btns.appendChild(b);
       }
 
       div.appendChild(left);
-      div.appendChild(groupsWrap);
+      div.appendChild(btns);
       container.appendChild(div);
 
       // initialize counts for this student
@@ -406,7 +430,7 @@ async function loadStudents(){
   }catch(e){
     console.error('Failed to load students', e);
     document.getElementById('studentsList').innerText = '載入學生失敗';
-    const debug = document.getElementById('debugStatus'); 
+    const debug = document.getElementById('debugStatus');
     debug.innerText = 'Debug: 載入學生發生錯誤 (請看 Console)';
     showToast('載入學生發生錯誤', 'error');
   }
