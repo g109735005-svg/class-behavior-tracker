@@ -51,6 +51,13 @@ async function seed() {
     const adminId = await ensureUser('admin@example.com', adminPwd, 'Admin', 'admin');
     const teacherId = await ensureUser('teacher@example.com', teacherPwd, 'Teacher', 'teacher');
 
+    // Also ensure simple monitor users exist (passwords are short by your request)
+    // Passwords: morning=11, nap=22, clean=33, monitor=44
+    await ensureUser('morning', '11', 'Morning Monitor', 'student');
+    await ensureUser('nap', '22', 'Nap Monitor', 'student');
+    await ensureUser('clean', '33', 'Clean Monitor', 'student');
+    await ensureUser('monitor', '44', 'Class Monitor', 'student');
+
     // Create a class and attach to teacher
     const classId = await ensureClass('Class A', teacherId);
 
@@ -100,4 +107,9 @@ async function seed() {
   }
 }
 
-seed();
+// If this file is run directly, execute seed(). Export seed() for programmatic use as well.
+if (require.main === module) {
+  seed();
+} else {
+  module.exports = { seed };
+}
