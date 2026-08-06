@@ -10,9 +10,63 @@
     .groups { display:flex; gap:12px }
     .group { border:1px solid #eee;padding:8px;border-radius:6px;background:#fafafa }
     .group h4 { margin:0 0 8px 0;font-size:14px }
-    .buttons button{display:block;margin-bottom:6px}
-    #login, #dashboard{max-width:1000px}
+    .buttons button{display:block;margin-bottom:6px;font-size:12px;padding:6px 8px}
+    #login, #dashboard{max-width:1200px}
     #debugStatus{background:#fff8e1;border:1px solid #ffe082;padding:8px;margin:8px 0;border-radius:4px}
+    
+    /* Toast Styles */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      max-width: 400px;
+    }
+    .toast {
+      background: #333;
+      color: #fff;
+      padding: 16px 24px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      animation: slideIn 0.3s ease-out;
+      word-wrap: break-word;
+    }
+    .toast.success {
+      background: #4caf50;
+    }
+    .toast.error {
+      background: #f44336;
+    }
+    .toast.info {
+      background: #2196f3;
+    }
+    .toast.warning {
+      background: #ff9800;
+    }
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    @keyframes slideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+    }
+    .toast.removing {
+      animation: slideOut 0.3s ease-out forwards;
+    }
   </style>
 </head>
 <body>
@@ -49,6 +103,9 @@
     </div>
   </div>
 
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
 <script>
 const apiBase = '';
 let token = null;
@@ -56,7 +113,7 @@ let me = null;
 let behaviorTypes = [];
 let myClass = null;
 
-// group definitions (codes)
+// group definitions (codes) - 三大分類
 const GROUPS = {
   add: {
     title: '加分',
@@ -75,11 +132,27 @@ const GROUPS = {
   }
 };
 
+// Toast Notification System
+function showToast(message, type = 'info', duration = 3000) {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('removing');
+    setTimeout(() => {
+      container.removeChild(toast);
+    }, 300);
+  }, duration);
+}
+
 async function api(path, method='GET', body=null){
   const headers = { 'Content-Type':'application/json' };
   if (token) headers['Authorization'] = 'Bearer ' + token;
   const res = await fetch(apiBase + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-  if (res.status === 401){ alert('未授權或登入逾時，請重新登入'); logout(); throw new Error('unauthorized'); }
+  if (res.status === 401){ showToast('未授權或登入逾時，請重新登入', 'error'); logout(); throw new Error('unauthorized'); }
   return res.json();
 }
 
@@ -89,12 +162,34 @@ document.getElementById('btnLogin').onclick = async ()=>{
   try{
     const r = await fetch(apiBase + '/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ username, password })});
     const data = await r.json();
-    if (r.ok){ token = data.token; me = data.user; localStorage.setItem('cbt_token', token); localStorage.setItem('cbt_user', JSON.stringify(me)); showDashboard(); }
-    else { document.getElementById('loginMsg').innerText = data.error || JSON.stringify(data); }
-  }catch(e){ console.error(e); document.getElementById('loginMsg').innerText = '登入失敗'; }
+    if (r.ok){ 
+      token = data.token; 
+      me = data.user; 
+      localStorage.setItem('cbt_token', token); 
+      localStorage.setItem('cbt_user', JSON.stringify(me)); 
+      showToast('登入成功！', 'success');
+      showDashboard(); 
+    }
+    else { 
+      showToast(data.error || '登入失敗', 'error');
+      document.getElementById('loginMsg').innerText = data.error || JSON.stringify(data); 
+    }
+  }catch(e){ 
+    console.error(e); 
+    showToast('登入發生錯誤', 'error');
+    document.getElementById('loginMsg').innerText = '登入失敗'; 
+  }
 }
 
-function logout(){ token=null; me=null; localStorage.removeItem('cbt_token'); localStorage.removeItem('cbt_user'); document.getElementById('dashboard').style.display='none'; document.getElementById('login').style.display='block'; }
+function logout(){ 
+  token=null; 
+  me=null; 
+  localStorage.removeItem('cbt_token'); 
+  localStorage.removeItem('cbt_user'); 
+  document.getElementById('dashboard').style.display='none';
+  document.getElementById('login').style.display='block';
+  showToast('已登出', 'info');
+}
 
 document.getElementById('btnLogout').onclick = ()=>logout();
 
@@ -119,12 +214,26 @@ async function showDashboard(){
 
         const tokenHeader = token ? { 'Authorization': 'Bearer ' + token } : {};
         const res = await fetch(url, { headers: tokenHeader });
-        if (!res.ok){ const err = await res.json().catch(()=>null); alert('匯出失敗: ' + (err&&err.error?err.error:res.statusText)); return; }
+        if (!res.ok){ 
+          const err = await res.json().catch(()=>null); 
+          showToast('匯出失敗: ' + (err&&err.error?err.error:res.statusText), 'error');
+          return; 
+        }
         const arrayBuffer = await res.arrayBuffer();
         const blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const urlBlob = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = urlBlob; a.download = `class_${myClass.id}_records.xlsx`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(urlBlob);
-      }catch(e){ console.error(e); alert('匯出發生錯誤'); }
+        const a = document.createElement('a'); 
+        a.href = urlBlob; 
+        a.download = `class_${myClass.id}_records.xlsx`; 
+        document.body.appendChild(a); 
+        a.click(); 
+        a.remove(); 
+        URL.revokeObjectURL(urlBlob);
+        showToast('匯出成功！', 'success');
+      }catch(e){ 
+        console.error(e); 
+        showToast('匯出發生錯誤', 'error');
+      }
     };
 
     await loadBehaviorTypes();
@@ -142,7 +251,11 @@ async function loadBehaviorTypes(){
     behaviorTypes = await api('/api/behavior-types');
     if (!Array.isArray(behaviorTypes)) behaviorTypes = [];
     console.log('behaviorTypes loaded', behaviorTypes);
-  }catch(e){ console.error('Failed to load behavior types', e); behaviorTypes = []; }
+  }catch(e){ 
+    console.error('Failed to load behavior types', e); 
+    showToast('載入行為類型失敗', 'error');
+    behaviorTypes = []; 
+  }
 }
 
 async function loadMyClass(){
@@ -150,7 +263,11 @@ async function loadMyClass(){
     myClass = await api('/api/my-class');
     if (!myClass) myClass = { id:1, name:'Class A' };
     console.log('myClass', myClass);
-  }catch(e){ console.error('Failed to load class', e); myClass = { id:1, name:'Class A' }; }
+  }catch(e){ 
+    console.error('Failed to load class', e); 
+    showToast('載入班級失敗', 'error');
+    myClass = { id:1, name:'Class A' }; 
+  }
 }
 
 // helper to find behavior type id by code
@@ -183,51 +300,70 @@ async function updateCountsAndMaybeAlert(student, remindedGroup, justAdded){
     if (justAdded && remindedGroup && GROUPS[remindedGroup].isReminder){
       const c = counts[remindedGroup];
       if (c === 3){
-        alert(`${student.student_no}號已第3筆`);
+        showToast(`${student.student_no}號已第3筆`, 'warning', 5000);
       } else if (c === 4){
-        alert('以第4筆，請思考上學規格');
+        showToast('已第4筆，請思考上學規格', 'warning', 5000);
       }
     }
-  }catch(e){ console.error('updateCounts failed', e); }
+  }catch(e){ 
+    console.error('updateCounts failed', e); 
+    showToast('更新計數失敗', 'error');
+  }
 }
 
 // Updated loadStudents to render groups and counts
 async function loadStudents(){
   try{
     const list = await api('/api/classes/'+myClass.id+'/students');
-    const container = document.getElementById('studentsList'); container.innerHTML='';
+    const container = document.getElementById('studentsList'); 
+    container.innerHTML='';
     const debug = document.getElementById('debugStatus');
     debug.innerText = 'Debug: 載入學生中...';
     console.log('students list', list);
     if (!Array.isArray(list) || list.length === 0){
       debug.innerText = 'Debug: 目前沒有學生或載入失敗';
+      showToast('未找到學生', 'info');
+      return;
     }
 
     for (const s of list){
-      const div = document.createElement('div'); div.className='student'; div.id = 'student-'+s.id;
-      const left = document.createElement('div'); left.className='left'; left.innerHTML = `<div><strong>${s.student_no} - ${s.name}</strong></div>`;
-      const groupsWrap = document.createElement('div'); groupsWrap.className='groups';
+      const div = document.createElement('div'); 
+      div.className='student'; 
+      div.id = 'student-'+s.id;
+      const left = document.createElement('div'); 
+      left.className='left'; 
+      left.innerHTML = `<div><strong>${s.student_no} - ${s.name}</strong></div>`;
+      const groupsWrap = document.createElement('div'); 
+      groupsWrap.className='groups';
 
       for (const gk of Object.keys(GROUPS)){
         const g = GROUPS[gk];
-        const groupEl = document.createElement('div'); groupEl.className='group';
-        const header = document.createElement('h4'); header.innerHTML = `${g.title} (<span class="group-count" data-group="${gk}">0</span>)`;
+        const groupEl = document.createElement('div'); 
+        groupEl.className='group';
+        const header = document.createElement('h4'); 
+        header.innerHTML = `${g.title} (<span class="group-count" data-group="${gk}">0</span>)`;
         groupEl.appendChild(header);
-        const btns = document.createElement('div'); btns.className='buttons';
+        const btns = document.createElement('div'); 
+        btns.className='buttons';
 
         // create buttons for codes in this group
         for (const code of g.codes){
           const bt = (behaviorTypes||[]).find(x=>x.code===code);
           const label = bt ? bt.label : code;
-          const b = document.createElement('button'); b.innerText = label;
+          const b = document.createElement('button'); 
+          b.innerText = label;
           b.onclick = async () => {
             // determine point delta: if behaviorTypes has default_point use it, else 0
             const point = bt ? bt.default_point : 0;
             try{
               await api('/api/records','POST',{ class_id: myClass.id, student_id: s.id, behavior_type_id: bt ? bt.id : null, point_delta: point, note: null });
               // after record created, update counts and check reminder rules
+              showToast(`已記錄 ${label}`, 'success');
               await updateCountsAndMaybeAlert(s, gk, true);
-            }catch(e){ console.error('record create failed', e); alert('記錄失敗'); }
+            }catch(e){ 
+              console.error('record create failed', e); 
+              showToast('記錄失敗', 'error');
+            }
           };
           btns.appendChild(b);
         }
@@ -248,31 +384,42 @@ async function loadStudents(){
   }catch(e){
     console.error('Failed to load students', e);
     document.getElementById('studentsList').innerText = '載入學生失敗';
-    const debug = document.getElementById('debugStatus'); debug.innerText = 'Debug: 載入學生發生錯誤 (請看 Console)';
+    const debug = document.getElementById('debugStatus'); 
+    debug.innerText = 'Debug: 載入學生發生錯誤 (請看 Console)';
+    showToast('載入學生發生錯誤', 'error');
   }
 }
 
 async function loadRecent(){
   try{
     const rows = await api('/api/records?class_id='+myClass.id);
-    const container = document.getElementById('recent'); container.innerHTML='';
+    const container = document.getElementById('recent'); 
+    container.innerHTML='';
     rows.forEach(r=>{
       const d = document.createElement('div');
       d.innerText = `${new Date(r.occurred_at).toLocaleString()} | ${r.behavior_label} (${r.point_delta}) | 學生ID:${r.student_id} | 登記:${r.registrar_name || ''} | ${r.note||''}`;
       container.appendChild(d);
     });
-  }catch(e){ console.error('Failed to load recent', e); }
+  }catch(e){ 
+    console.error('Failed to load recent', e); 
+    showToast('載入最近紀錄失敗', 'error');
+  }
 }
 
 async function loadStudentRecords(){
   try{
     const rows = await api('/api/records');
-    const container = document.getElementById('studentRecords'); container.innerHTML='';
+    const container = document.getElementById('studentRecords'); 
+    container.innerHTML='';
     rows.forEach(r=>{
-      const d = document.createElement('div'); d.innerText = `${new Date(r.occurred_at).toLocaleString()} | ${r.behavior_label} (${r.point_delta}) | 登記:${r.registrar_name} | ${r.note||''}`;
+      const d = document.createElement('div'); 
+      d.innerText = `${new Date(r.occurred_at).toLocaleString()} | ${r.behavior_label} (${r.point_delta}) | 登記:${r.registrar_name} | ${r.note||''}`;
       container.appendChild(d);
     });
-  }catch(e){ console.error('Failed to load student records', e); }
+  }catch(e){ 
+    console.error('Failed to load student records', e); 
+    showToast('載入學生紀錄失敗', 'error');
+  }
 }
 
 // Auto-login if token in localStorage
