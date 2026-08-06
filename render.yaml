@@ -21,7 +21,7 @@ services:
       - key: JWT_SECRET
         value: ''
       - key: RUN_SEED_ON_START
-        value: 'false'
+        value: 'true'
 
   - type: static-site
     name: class-behavior-tracker-frontend
@@ -38,7 +38,10 @@ services:
 # Notes:
 # 1) Adjust `branch` if your default branch is not `main` (e.g., `master` or `develop`).
 # 2) Fill DATABASE_URL and JWT_SECRET in the Render dashboard (do NOT commit secrets into git).
-# 3) The backend server listens on the port provided by the environment variable $PORT. Render
+# 3) RUN_SEED_ON_START is set to 'true' here so the first deployment will attempt to run the seed script.
+#    After seed completes, consider setting RUN_SEED_ON_START back to 'false' in the Render dashboard to avoid
+#    re-running the seed on every restart.
+# 4) The backend server listens on the port provided by the environment variable $PORT. Render
 #    provides this automatically; the start command uses the environment at runtime.
-# 4) If your frontend build outputs to a different folder (e.g., `dist`), change `publishPath`.
-# 5) If you prefer to use a Docker service instead, you can replace the web service with type: docker
+# 5) If your frontend build outputs to a different folder (e.g., `dist`), change `publishPath`.
+# 6) If you prefer to use a Docker service instead, you can replace the web service with type: docker
