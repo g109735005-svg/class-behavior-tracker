@@ -14,7 +14,10 @@
     "jsonwebtoken": "^9.0.0",
     "pg": "^8.10.0",
     "date-fns": "^2.30.0",
-    "exceljs": "^4.3.0"
+    "exceljs": "^4.3.0",
+    "helmet": "^6.0.0",
+    "morgan": "^1.10.0",
+    "express-rate-limit": "^6.7.0"
   },
   "devDependencies": {
     "nodemon": "^2.0.22"
