@@ -1,41 +1,522 @@
-*** Begin Patch
-*** Update File: frontend/index.html
-@@
--    for (const code of g.codes){
--      const bt = (behaviorTypes||[]).find(x=>x.code===code);
--      const btn = document.createElement('button');
--      btn.className = 'behavior-btn';
--      btn.innerText = bt ? bt.label : code;
--      btn.dataset.code = code;
--      btn.onclick = () => {
--        // select behavior
--        const b = bt ? { id: bt.id, code: bt.code, label: bt.label, default_point: bt.default_point } : { id:null, code, label:code, default_point:0 };
--        selectedBehavior = { ...b, groupKey: gk };
--        // highlight selected
--        document.querySelectorAll('.behavior-btn').forEach(x=>x.classList.remove('selected'));
--        btn.classList.add('selected');
--        showToast('已選擇：' + (b.label || b.code), 'info', 1500);
--      };
--      groupDiv.appendChild(btn);
--    }
-+    for (const code of g.codes){
-+      // try to find behavior type by code
-+      let bt = (behaviorTypes||[]).find(x=>x.code===code);
-+      // fallback: if not found, attempt to look up by code again after behaviorTypes has loaded
-+      if (!bt){ bt = btByCode(code); }
-+      const btn = document.createElement('button');
-+      btn.className = 'behavior-btn';
-+      btn.innerText = bt ? bt.label : code;
-+      btn.dataset.code = code;
-+      btn.onclick = () => {
-+        // select behavior with guaranteed id/default_point when possible
-+        const b = bt ? { id: bt.id, code: bt.code, label: bt.label, default_point: bt.default_point } : { id:null, code, label:code, default_point:0 };
-+        selectedBehavior = { ...b, groupKey: gk };
-+        // highlight selected
-+        document.querySelectorAll('.behavior-btn').forEach(x=>x.classList.remove('selected'));
-+        btn.classList.add('selected');
-+        showToast('已選擇：' + (b.label || b.code), 'info', 1500);
-+      };
-+      groupDiv.appendChild(btn);
-+    }
-*** End Patch
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Class Behavior Tracker</title>
+  <style>
+    body{font-family: Arial, sans-serif;padding:20px}
+    /* 每位學生一列（row） */
+    .student{
+      border-bottom:1px solid #eee;
+      padding:8px 0;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+    }
+
+    /* 左側：學生編號與姓名 */
+    .left { min-width:260px }
+
+    /* 按鈕容器：水平排列、必要時換行 */
+    .buttons {
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    /* 按鈕樣式 */
+    .buttons button{
+      display:inline-block;
+      margin:0;
+      padding:6px 8px;
+      font-size:13px;
+      border-radius:6px;
+    }
+
+    /* 行為工具列 */
+    .toolbar { margin: 12px 0 18px 0; display:flex; gap:18px; flex-wrap:wrap; align-items:center }
+    .toolbar .group { display:flex; gap:8px; align-items:center; }
+    .behavior-btn { background:#f0f0f0; border:1px solid #ddd; padding:6px 10px; border-radius:6px; cursor:pointer }
+    .behavior-btn.selected { background:#1976d2; color:white; border-color:#1976d2 }
+    .group-label { font-weight:600; margin-right:6px }
+
+    /* 隱藏或覆蓋原本 group 樣式（若仍存在） */
+    .groups { display:flex; gap:12px }
+    .group { border:none; padding:0; background:transparent }
+    .group h4 { display:none }
+
+    #login, #dashboard{max-width:1200px}
+    #debugStatus{background:#fff8e1;border:1px solid #ffe082;padding:8px;margin:8px 0;border-radius:4px}
+    
+    /* Toast Styles */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      max-width: 400px;
+    }
+    .toast {
+      background: #333;
+      color: #fff;
+      padding: 16px 24px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      animation: slideIn 0.3s ease-out;
+      word-wrap: break-word;
+    }
+    .toast.success {
+      background: #4caf50;
+    }
+    .toast.error {
+      background: #f44336;
+    }
+    .toast.info {
+      background: #2196f3;
+    }
+    .toast.warning {
+      background: #ff9800;
+    }
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    @keyframes slideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+    }
+    .toast.removing {
+      animation: slideOut 0.3s ease-out forwards;
+    }
+  </style>
+</head>
+<body>
+  <h1>Class Behavior Tracker</h1>
+  <div id="login">
+    <h2>登入</h2>
+    <input id="username" placeholder="email" /><br/><br/>
+    <input id="password" placeholder="password" type="password" /><br/><br/>
+    <button id="btnLogin">登入</button>
+    <p>範例帳號：teacher@example.com / Passw0rd123 或 admin@example.com / Passw0rd123</p>
+    <div id="loginMsg"></div>
+  </div>
+
+  <div id="dashboard" style="display:none">
+    <div>
+      <span id="who"></span>
+      <button id="btnLogout">登出</button>
+    </div>
+    <hr/>
+    <div id="teacherView" style="display:none">
+      <h2>教師面板 <button id="btnDashboard" style="margin-left:12px">查看儀表板</button> <button id="btnExportAll" style="margin-left:12px">匯出全班 (Excel)</button></h2>
+      <div>
+        <label>選班級（暫預設第一班）</label>
+      </div>
+
+      <!-- Behavior toolbar: select a behavior first, then pick a student -->
+      <div id="behaviorToolbar" class="toolbar" aria-label="行為工具列"></div>
+
+      <div id="debugStatus" aria-live="polite">Debug: 尚未載入學生</div>
+      <div id="studentsList"></div>
+      <h3>最近紀錄</h3>
+      <div id="recent"></div>
+    </div>
+
+    <div id="studentView" style="display:none">
+      <h2>學生檢視（當天紀錄）</h2>
+      <div id="studentRecords"></div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+<script>
+const apiBase = '';
+let token = null;
+let me = null;
+let behaviorTypes = [];
+let myClass = null;
+let selectedBehavior = null; // {id, code, label, default_point, groupKey}
+
+// Monitors allowed to create records but not access exports/dashboards
+const ALLOWED_MONITORS = ['morning','nap','clean','monitor'];
+
+// group definitions (codes) - 三大分類
+const GROUPS = {
+  add: {
+    title: '加分',
+    codes: ['add_question','add_correct','add_group','add_other'],
+    isReminder: false
+  },
+  monitor: {
+    title: '股長提醒',
+    codes: ['monitor_morning_silence','monitor_respect_classmates','monitor_quiet_study','monitor_calm_lunch','monitor_cleaning_dutiful','monitor_leave_on_time'],
+    isReminder: true
+  },
+  teacher_remind: {
+    title: '老師提醒',
+    codes: ['teacher_raise_hand','teacher_respect','teacher_remember_warned','teacher_quiet_study','teacher_calm_lunch'],
+    isReminder: true
+  }
+};
+
+// Toast Notification System
+function showToast(message, type = 'info', duration = 3000) {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('removing');
+    setTimeout(() => {
+      container.removeChild(toast);
+    }, 300);
+  }, duration);
+}
+
+async function api(path, method='GET', body=null){
+  const headers = { 'Content-Type':'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(apiBase + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401){ showToast('未授權或登入逾時，請重新登入', 'error'); logout(); throw new Error('unauthorized'); }
+  return res.json();
+}
+
+document.getElementById('btnLogin').onclick = async ()=>{
+  const username = document.getElementById('username').value;
+  const password = document.getElementById('password').value;
+  try{
+    const r = await fetch(apiBase + '/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ username, password })});
+    const data = await r.json();
+    if (r.ok){ 
+      token = data.token; 
+      me = data.user; 
+      localStorage.setItem('cbt_token', token); 
+      localStorage.setItem('cbt_user', JSON.stringify(me)); 
+      showToast('登入成功！', 'success');
+      showDashboard(); 
+    }
+    else { 
+      showToast(data.error || '登入失敗', 'error');
+      document.getElementById('loginMsg').innerText = data.error || JSON.stringify(data); 
+    }
+  }catch(e){ 
+    console.error(e); 
+    showToast('登入發生錯誤', 'error');
+    document.getElementById('loginMsg').innerText = '登入失敗'; 
+  }
+}
+
+function logout(){ 
+  token=null; 
+  me=null; 
+  localStorage.removeItem('cbt_token'); 
+  localStorage.removeItem('cbt_user'); 
+  document.getElementById('dashboard').style.display='none';
+  document.getElementById('login').style.display='block';
+  showToast('已登出', 'info');
+}
+
+document.getElementById('btnLogout').onclick = ()=>logout();
+
+function renderBehaviorToolbar(){
+  const toolbar = document.getElementById('behaviorToolbar');
+  toolbar.innerHTML = '';
+  // For each group, render group label and its buttons
+  for (const gk of Object.keys(GROUPS)){
+    const g = GROUPS[gk];
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'group';
+    const label = document.createElement('span');
+    label.className = 'group-label';
+    label.innerText = g.title + ':';
+    groupDiv.appendChild(label);
+
+    for (const code of g.codes){
+      // try to find behavior type by code
+      let bt = (behaviorTypes||[]).find(x=>x.code===code);
+      // fallback: if not found, attempt to look up by code again after behaviorTypes has loaded
+      if (!bt){ bt = btByCode(code); }
+      const btn = document.createElement('button');
+      btn.className = 'behavior-btn';
+      btn.innerText = bt ? bt.label : code;
+      btn.dataset.code = code;
+      btn.onclick = () => {
+        // select behavior with guaranteed id/default_point when possible
+        const b = bt ? { id: bt.id, code: bt.code, label: bt.label, default_point: bt.default_point } : { id:null, code, label:code, default_point:0 };
+        selectedBehavior = { ...b, groupKey: gk };
+        // highlight selected
+        document.querySelectorAll('.behavior-btn').forEach(x=>x.classList.remove('selected'));
+        btn.classList.add('selected');
+        showToast('已選擇：' + (b.label || b.code), 'info', 1500);
+      };
+      groupDiv.appendChild(btn);
+    }
+    toolbar.appendChild(groupDiv);
+  }
+}
+
+async function showDashboard(){
+  document.getElementById('login').style.display='none';
+  document.getElementById('dashboard').style.display='block';
+  document.getElementById('who').innerText = '登入者：' + me.display_name + ' ('+me.role+')';
+  const isTeacherOrAdmin = (me.role === 'teacher' || me.role === 'admin');
+  const isMonitor = ALLOWED_MONITORS.includes(me.username);
+
+  if (isTeacherOrAdmin || isMonitor){
+    document.getElementById('teacherView').style.display='block';
+
+    // 教師/管理員才顯示「查看儀表板」與「匯出全班」
+    if (!isTeacherOrAdmin){
+      document.getElementById('btnDashboard').style.display = 'none';
+      document.getElementById('btnExportAll').style.display = 'none';
+    } else {
+      document.getElementById('btnDashboard').style.display = 'inline-block';
+      document.getElementById('btnExportAll').style.display = 'inline-block';
+    }
+
+    document.getElementById('btnDashboard').onclick = () => { window.location.href = '/dashboard.html'; };
+
+    document.getElementById('btnExportAll').onclick = async () => {
+      try{
+        const from = prompt('From (YYYY-MM-DD) — leave empty for no lower bound', '');
+        const to = prompt('To (YYYY-MM-DD) — leave empty for no upper bound', '');
+        let url = `/api/classes/${myClass.id}/export`;
+        const qs = [];
+        if (from) qs.push('from=' + encodeURIComponent(from));
+        if (to) qs.push('to=' + encodeURIComponent(to));
+        if (qs.length) url += '?' + qs.join('&');
+
+        const tokenHeader = token ? { 'Authorization': 'Bearer ' + token } : {};
+        const res = await fetch(url, { headers: tokenHeader });
+        if (!res.ok){ 
+          const err = await res.json().catch(()=>null); 
+          showToast('匯出失敗: ' + (err&&err.error?err.error:res.statusText), 'error');
+          return; 
+        }
+        const arrayBuffer = await res.arrayBuffer();
+        const blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const urlBlob = URL.createObjectURL(blob);
+        const a = document.createElement('a'); 
+        a.href = urlBlob; 
+        a.download = `class_${myClass.id}_records.xlsx`; 
+        document.body.appendChild(a); 
+        a.click(); 
+        a.remove(); 
+        URL.revokeObjectURL(urlBlob);
+        showToast('匯出成功！', 'success');
+      }catch(e){ 
+        console.error(e); 
+        showToast('匯出發生錯誤', 'error');
+      }
+    };
+
+    await loadBehaviorTypes();
+    renderBehaviorToolbar();
+    await loadMyClass();
+    await loadStudents();
+    await loadRecent();
+  } else if (me.role === 'student'){
+    document.getElementById('studentView').style.display='block';
+    await loadStudentRecords();
+  }
+}
+
+async function loadBehaviorTypes(){
+  try{
+    behaviorTypes = await api('/api/behavior-types');
+    if (!Array.isArray(behaviorTypes)) behaviorTypes = [];
+    console.log('behaviorTypes loaded', behaviorTypes);
+  }catch(e){ 
+    console.error('Failed to load behavior types', e); 
+    showToast('載入行為類型失敗', 'error');
+    behaviorTypes = []; 
+  }
+}
+
+async function loadMyClass(){
+  try{
+    myClass = await api('/api/my-class');
+    if (!myClass) myClass = { id:1, name:'Class A' };
+    console.log('myClass', myClass);
+  }catch(e){ 
+    console.error('Failed to load class', e); 
+    showToast('載入班級失敗', 'error');
+    myClass = { id:1, name:'Class A' }; 
+  }
+}
+
+// helper to find behavior type id by code
+function btByCode(code){ return (behaviorTypes||[]).find(x=>x.code===code) || null; }
+
+// get today's date string
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+// Update counts for a student (today) per group and optionally show reminders
+async function updateCountsAndMaybeAlert(student, remindedGroup, justAdded){
+  try{
+    const rows = await api(`/api/records?class_id=${myClass.id}&student_id=${student.id}&date=${todayStr()}`);
+    // rows contain behavior_code
+    const counts = { add:0, monitor:0, teacher_remind:0 };
+    for (const r of rows){
+      for (const gk of Object.keys(GROUPS)){
+        if (GROUPS[gk].codes.includes(r.behavior_code)) counts[gk]++;
+      }
+    }
+    // update DOM
+    const wrapper = document.getElementById('student-'+student.id);
+    if (wrapper){
+      for (const gk of Object.keys(GROUPS)){
+        const el = wrapper.querySelector(`.group-count[data-group="${gk}"]`);
+        if (el) el.innerText = counts[gk];
+      }
+    }
+
+    // If justAdded indicates we need to check reminders for that group
+    if (justAdded && remindedGroup && GROUPS[remindedGroup].isReminder){
+      const c = counts[remindedGroup];
+      if (c === 3){
+        showToast(`${student.student_no}號已第3筆`, 'warning', 5000);
+      } else if (c === 4){
+        showToast('已第4筆，請思考上學規格', 'warning', 5000);
+      }
+    }
+  }catch(e){ 
+    console.error('updateCounts failed', e); 
+    showToast('更新計數失敗', 'error');
+  }
+}
+
+// 扁平化版 loadStudents：每位學生一列，按鈕水平排列
+async function loadStudents(){
+  try{
+    const list = await api('/api/classes/'+myClass.id+'/students');
+    const container = document.getElementById('studentsList');
+    container.innerHTML = '';
+    const debug = document.getElementById('debugStatus');
+    debug.innerText = 'Debug: 載入學生中...';
+
+    if (!Array.isArray(list) || list.length === 0){
+      debug.innerText = 'Debug: 目前沒有學生或載入失敗';
+      showToast('未找到學生', 'info');
+      return;
+    }
+
+    for (const s of list){
+      const div = document.createElement('div');
+      div.className = 'student';
+      div.id = 'student-' + s.id;
+
+      // left: student no & name
+      const left = document.createElement('div');
+      left.className = 'left';
+      left.innerHTML = `<div><strong>${s.student_no} - ${s.name}</strong></div>`;
+
+      // count badges (optional, hidden if not present)
+      const countsDiv = document.createElement('div');
+      countsDiv.className = 'counts';
+
+      const btns = document.createElement('div');
+      btns.className = 'buttons';
+
+      // Student row click applies selectedBehavior if any
+      div.onclick = async () => {
+        if (!selectedBehavior){
+          showToast('請先在上方選擇一個行為', 'info');
+          return;
+        }
+        // perform record creation
+        try{
+          await api('/api/records','POST',{
+            class_id: myClass.id,
+            student_id: s.id,
+            behavior_type_id: selectedBehavior.id,
+            point_delta: selectedBehavior.default_point || 0,
+            note: null
+          });
+          showToast(`已為 ${s.student_no} ${s.name} 記錄：${selectedBehavior.label}`, 'success');
+          // update counts and maybe show reminders
+          await updateCountsAndMaybeAlert(s, selectedBehavior.groupKey, true);
+        }catch(e){
+          console.error('record create failed', e);
+          showToast('記錄失敗', 'error');
+        }
+      };
+
+      div.appendChild(left);
+      div.appendChild(btns);
+      container.appendChild(div);
+
+      // initialize counts for this student
+      updateCountsAndMaybeAlert(s, null, false);
+    }
+
+    debug.innerText = `Debug: 已載入 ${list.length} 位學生： ` + (list.map(x=>x.name).join(', '));
+  }catch(e){
+    console.error('Failed to load students', e);
+    document.getElementById('studentsList').innerText = '載入學生失敗';
+    const debug = document.getElementById('debugStatus');
+    debug.innerText = 'Debug: 載入學生發生錯誤 (請看 Console)';
+    showToast('載入學生發生錯誤', 'error');
+  }
+}
+
+async function loadRecent(){
+  try{
+    const rows = await api('/api/records?class_id='+myClass.id);
+    const container = document.getElementById('recent'); 
+    container.innerHTML='';
+    rows.forEach(r=>{
+      const d = document.createElement('div');
+      d.innerText = `${new Date(r.occurred_at).toLocaleString()} | ${r.behavior_label} (${r.point_delta}) | 學生ID:${r.student_id} | 登記:${r.registrar_name || ''} | ${r.note||''}`;
+      container.appendChild(d);
+    });
+  }catch(e){ 
+    console.error('Failed to load recent', e); 
+    showToast('載入最近紀錄失敗', 'error');
+  }
+}
+
+async function loadStudentRecords(){
+  try{
+    const rows = await api('/api/records');
+    const container = document.getElementById('studentRecords'); 
+    container.innerHTML='';
+    rows.forEach(r=>{
+      const d = document.createElement('div'); 
+      d.innerText = `${new Date(r.occurred_at).toLocaleString()} | ${r.behavior_label} (${r.point_delta}) | 登記:${r.registrar_name} | ${r.note||''}`;
+      container.appendChild(d);
+    });
+  }catch(e){ 
+    console.error('Failed to load student records', e); 
+    showToast('載入學生紀錄失敗', 'error');
+  }
+}
+
+// Auto-login if token in localStorage
+(function(){
+  const t = localStorage.getItem('cbt_token');
+  const u = localStorage.getItem('cbt_user');
+  if (t && u){ token=t; me=JSON.parse(u); showDashboard(); }
+})();
+</script>
+</body>
+</html>
