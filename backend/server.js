@@ -5,44 +5,12 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const db = require('./db');
-const helmet = require('helmet');
-const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
 
 const app = express();
-
-// Basic security and logging
-app.use(helmet());
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
-
-// CORS: restrict in production via CORS_ORIGIN (set this to your frontend URL)
-const corsOptions = {};
-if (process.env.CORS_ORIGIN) {
-  corsOptions.origin = process.env.CORS_ORIGIN;
-  corsOptions.credentials = true;
-} else if (process.env.NODE_ENV === 'production') {
-  // In production we require explicit CORS_ORIGIN to be set
-  console.error('FATAL: CORS_ORIGIN is not set in production. Set it to your frontend origin.');
-  process.exit(1);
-} else {
-  corsOptions.origin = true; // allow all origins in development
-}
-app.use(cors(corsOptions));
+app.use(cors());
 app.use(express.json());
 
-// Rate limiting for auth endpoints (simple protection against brute force)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // limit each IP to 20 requests per windowMs
-  message: { error: 'Too many requests, please try again later.' }
-});
-
-// JWT secret must be set in production
-const JWT_SECRET = process.env.JWT_SECRET;
-if (process.env.NODE_ENV === 'production' && !JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET must be set in production environment');
-  process.exit(1);
-}
+const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret';
 
 // Serve frontend static files with no-cache headers
 app.use('/', express.static(path.join(__dirname, '../frontend'), {
@@ -54,7 +22,7 @@ app.use('/', express.static(path.join(__dirname, '../frontend'), {
 }));
 
 // Auth
-app.post('/auth/login', authLimiter, async (req,res) => {
+app.post('/auth/login', async (req,res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'username and password required' });
   try {
@@ -75,10 +43,8 @@ function authMiddleware(req,res,next){
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: 'missing authorization' });
   const parts = auth.split(' ');
-  if (parts.length !== 2) return res.status(401).json({ error: 'invalid authorization format' });
-  const scheme = parts[0];
+  if (parts.length !== 2) return res.status(401).json({ error: 'invalid authorization' });
   const token = parts[1];
-  if (!/^Bearer$/i.test(scheme)) return res.status(401).json({ error: 'invalid authorization scheme' });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = payload;
@@ -240,7 +206,15 @@ if (process.env.RUN_SEED_ON_START === 'true') {
       console.log('RUN_SEED_ON_START is true — running seed...');
       console.log('SEED_MARKER=2');
       const s = require('./init_seed');
-      await s.seed();
+      // support both: init_seed may export a seed() function, or it may run the seed when required
+      if (s && typeof s.seed === 'function') {
+        await s.seed();
+      } else if (typeof s === 'function') {
+        // module exports a function directly
+        await s();
+      } else {
+        // init_seed.js may have executed seed during require() already; nothing to do
+      }
       console.log('Startup seed finished.');
     } catch (e) {
       console.error('Startup seed failed:', e);
