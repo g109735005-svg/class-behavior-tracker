@@ -5,9 +5,13 @@
   <title>Class Behavior Tracker</title>
   <style>
     body{font-family: Arial, sans-serif;padding:20px}
-    .student{border:1px solid #ddd;padding:8px;margin:4px;display:flex;justify-content:space-between}
-    .buttons button, .buttons a{margin-left:6px}
-    #login, #dashboard{max-width:900px}
+    .student{border:1px solid #ddd;padding:8px;margin:8px 0;display:flex;justify-content:space-between;align-items:flex-start}
+    .student .left { min-width:260px }
+    .groups { display:flex; gap:12px }
+    .group { border:1px solid #eee;padding:8px;border-radius:6px;background:#fafafa }
+    .group h4 { margin:0 0 8px 0;font-size:14px }
+    .buttons button{display:block;margin-bottom:6px}
+    #login, #dashboard{max-width:1000px}
     #debugStatus{background:#fff8e1;border:1px solid #ffe082;padding:8px;margin:8px 0;border-radius:4px}
   </style>
 </head>
@@ -51,6 +55,25 @@ let token = null;
 let me = null;
 let behaviorTypes = [];
 let myClass = null;
+
+// group definitions (codes)
+const GROUPS = {
+  add: {
+    title: '加分',
+    codes: ['add_question','add_correct','add_group','add_other'],
+    isReminder: false
+  },
+  monitor: {
+    title: '股長提醒',
+    codes: ['monitor_morning_silence','monitor_respect_classmates','monitor_quiet_study','monitor_calm_lunch','monitor_cleaning_dutiful','monitor_leave_on_time'],
+    isReminder: true
+  },
+  teacher_remind: {
+    title: '老師提醒',
+    codes: ['teacher_raise_hand','teacher_respect','teacher_remember_warned','teacher_quiet_study','teacher_calm_lunch'],
+    isReminder: true
+  }
+};
 
 async function api(path, method='GET', body=null){
   const headers = { 'Content-Type':'application/json' };
@@ -130,7 +153,45 @@ async function loadMyClass(){
   }catch(e){ console.error('Failed to load class', e); myClass = { id:1, name:'Class A' }; }
 }
 
-// Updated loadStudents with export button; defensive so export always added
+// helper to find behavior type id by code
+function btId(code){ const b = (behaviorTypes||[]).find(x=>x.code===code); return b? b.id : null; }
+
+// get today's date string
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+// Update counts for a student (today) per group and optionally show reminders
+async function updateCountsAndMaybeAlert(student, remindedGroup, justAdded){
+  try{
+    const rows = await api(`/api/records?class_id=${myClass.id}&student_id=${student.id}&date=${todayStr()}`);
+    // rows contain behavior_code
+    const counts = { add:0, monitor:0, teacher_remind:0 };
+    for (const r of rows){
+      for (const gk of Object.keys(GROUPS)){
+        if (GROUPS[gk].codes.includes(r.behavior_code)) counts[gk]++;
+      }
+    }
+    // update DOM
+    const wrapper = document.getElementById('student-'+student.id);
+    if (wrapper){
+      for (const gk of Object.keys(GROUPS)){
+        const el = wrapper.querySelector(`.group-count[data-group="${gk}"]`);
+        if (el) el.innerText = counts[gk];
+      }
+    }
+
+    // If justAdded indicates we need to check reminders for that group
+    if (justAdded && remindedGroup && GROUPS[remindedGroup].isReminder){
+      const c = counts[remindedGroup];
+      if (c === 3){
+        alert(`${student.student_no}號已第3筆`);
+      } else if (c === 4){
+        alert('以第4筆，請思考上學規格');
+      }
+    }
+  }catch(e){ console.error('updateCounts failed', e); }
+}
+
+// Updated loadStudents to render groups and counts
 async function loadStudents(){
   try{
     const list = await api('/api/classes/'+myClass.id+'/students');
@@ -141,49 +202,48 @@ async function loadStudents(){
     if (!Array.isArray(list) || list.length === 0){
       debug.innerText = 'Debug: 目前沒有學生或載入失敗';
     }
-    list.forEach(s => {
-      try{
-        const div = document.createElement('div'); div.className='student';
-        div.innerHTML = `<div>${s.student_no} - ${s.name}</div><div class="buttons"></div>`;
-        const btns = div.querySelector('.buttons');
 
-        // behavior buttons (may be empty)
-        try{
-          (behaviorTypes || []).forEach(bt => {
-            const b = document.createElement('button'); b.innerText = bt.label; b.onclick = async ()=>{
-              const note = prompt('備註 (可選)') || '';
-              await api('/api/records','POST',{ class_id: myClass.id, student_id: s.id, behavior_type_id: bt.id, point_delta: bt.default_point, note });
-              alert('已記錄'); loadRecent();
-            };
-            btns.appendChild(b);
-          });
-        }catch(e){ console.error('error rendering behavior buttons', e); }
+    for (const s of list){
+      const div = document.createElement('div'); div.className='student'; div.id = 'student-'+s.id;
+      const left = document.createElement('div'); left.className='left'; left.innerHTML = `<div><strong>${s.student_no} - ${s.name}</strong></div>`;
+      const groupsWrap = document.createElement('div'); groupsWrap.className='groups';
 
-        // export CSV button (always append)
-        const exportBtn = document.createElement('button');
-        exportBtn.innerText = '匯出紀錄 (Excel)';
-        exportBtn.style.marginLeft = '8px';
-        exportBtn.onclick = async () => {
-          try {
-            const tokenHeader = token ? { 'Authorization': 'Bearer ' + token } : {};
-            const res = await fetch(`/api/classes/${myClass.id}/students/${s.id}/export`, { headers: tokenHeader });
-            if (!res.ok) {
-              const err = await res.json().catch(()=>null);
-              alert('匯出失敗: ' + (err&&err.error ? err.error : res.statusText));
-              return;
-            }
-            const arrayBuffer = await res.arrayBuffer();
-            const bom = new Uint8Array([0xEF,0xBB,0xBF]);
-            const blob = new Blob([bom, arrayBuffer], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = `student_${s.id}_records.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-          } catch (e) { console.error(e); alert('匯出發生錯誤'); }
-        };
-        btns.appendChild(exportBtn);
+      for (const gk of Object.keys(GROUPS)){
+        const g = GROUPS[gk];
+        const groupEl = document.createElement('div'); groupEl.className='group';
+        const header = document.createElement('h4'); header.innerHTML = `${g.title} (<span class="group-count" data-group="${gk}">0</span>)`;
+        groupEl.appendChild(header);
+        const btns = document.createElement('div'); btns.className='buttons';
 
-        container.appendChild(div);
-      }catch(e){ console.error('error rendering student row', e); }
-    });
+        // create buttons for codes in this group
+        for (const code of g.codes){
+          const bt = (behaviorTypes||[]).find(x=>x.code===code);
+          const label = bt ? bt.label : code;
+          const b = document.createElement('button'); b.innerText = label;
+          b.onclick = async () => {
+            // determine point delta: if behaviorTypes has default_point use it, else 0
+            const point = bt ? bt.default_point : 0;
+            try{
+              await api('/api/records','POST',{ class_id: myClass.id, student_id: s.id, behavior_type_id: bt ? bt.id : null, point_delta: point, note: null });
+              // after record created, update counts and check reminder rules
+              await updateCountsAndMaybeAlert(s, gk, true);
+            }catch(e){ console.error('record create failed', e); alert('記錄失敗'); }
+          };
+          btns.appendChild(b);
+        }
+
+        groupEl.appendChild(btns);
+        groupsWrap.appendChild(groupEl);
+      }
+
+      div.appendChild(left);
+      div.appendChild(groupsWrap);
+      container.appendChild(div);
+
+      // initialize counts for this student
+      updateCountsAndMaybeAlert(s, null, false);
+    }
+
     debug.innerText = `Debug: 已載入 ${list.length} 位學生： ` + (list.map(x=>x.name).join(', '));
   }catch(e){
     console.error('Failed to load students', e);

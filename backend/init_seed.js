@@ -55,41 +55,49 @@ async function seed() {
     const classId = await ensureClass('Class A', teacherId);
 
     // behavior types
+    // Updated to match new three main categories: 加分, 股長提醒, 老師提醒
     const behaviors = [
-      ['add_point','加分',1],
-      ['deduct_point','扣分',-1],
-      ['asked_question','問問題',0],
-      ['volunteered_answer','主動回答問題',1],
-      ['spoke_without_hand','未舉手發言',-1],
-      ['lottery_attempt','抽籤嘗試',0]
+      // 加分 (each +1)
+      ['add_question','舉手發問',1],
+      ['add_correct','舉手答對',1],
+      ['add_group','小組加分',1],
+      ['add_other','其他加分',1],
+
+      // 股長提醒 (no point change)
+      ['monitor_morning_silence','早自習要寧靜',0],
+      ['monitor_respect_classmates','要尊重同學',0],
+      ['monitor_quiet_study','要安靜學習',0],
+      ['monitor_calm_lunch','要靜心午休',0],
+      ['monitor_cleaning_dutiful','打掃要認真',0],
+      ['monitor_leave_on_time','放學要確實',0],
+
+      // 老師提醒 (no point change)
+      ['teacher_raise_hand','要先舉手',0],
+      ['teacher_respect','要尊重同學',0],
+      ['teacher_remember_warned','提醒過要記住',0],
+      ['teacher_quiet_study','要安靜學習',0],
+      ['teacher_calm_lunch','要靜心午休',0]
     ];
-    for (const b of behaviors) {
+
+    for (const b of behaviors){
       await ensureBehavior(b[0], b[1], b[2]);
     }
 
-    // Insert students from CSV if available
-    const csvPath = path.join(__dirname, '../students/example_students.csv');
-    if (fs.existsSync(csvPath)){
-      const csv = fs.readFileSync(csvPath, 'utf8');
-      const lines = csv.trim().split(/\r?\n/).slice(1);
-      for (const line of lines) {
-        const [student_no, name] = line.split(',');
-        await ensureStudent(classId, Number(student_no), name);
+    // create some students for seed (if none)
+    const existing = await db.query('SELECT id FROM students WHERE class_id=$1 LIMIT 1', [classId]);
+    if (existing.rows.length === 0){
+      const names = ['陳小明','林大華','張小英','李美麗','王小強','劉志明','黃雅婷','吳俊宏','徐怡君','周柏均'];
+      let no = 1;
+      for (const n of names){
+        await ensureStudent(classId, no++, n);
       }
-    } else {
-      console.log('No students CSV found, skipping student seed');
     }
 
-    console.log('Seeding completed.');
+    console.log('Seed complete');
   } catch (err) {
-    console.error('Seed error', err);
-    throw err;
+    console.error('Seed failed', err);
+    process.exit(1);
   }
 }
 
-// If run directly, execute and exit with code
-if (require.main === module) {
-  seed().then(() => process.exit(0)).catch(() => process.exit(1));
-}
-
-module.exports = { seed };
+seed();
