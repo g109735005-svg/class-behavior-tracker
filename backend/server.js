@@ -12,8 +12,14 @@ app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret';
 
-// Serve frontend static files
-app.use('/', express.static(path.join(__dirname, '../frontend')));
+// Serve frontend static files with no-cache headers
+app.use('/', express.static(path.join(__dirname, '../frontend'), {
+  setHeaders: (res, path) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}));
 
 // Auth
 app.post('/auth/login', async (req,res) => {
