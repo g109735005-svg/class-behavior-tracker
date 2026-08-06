@@ -131,7 +131,13 @@ app.get('/api/atomic-counter/:key', authMiddleware, async (req,res) => {
 });
 
 // Create record
-app.post('/api/records', authMiddleware, roleAllowed(['teacher','admin']), async (req,res) => {
+// Allow teachers/admins and specific monitor accounts to create records, but keep exports and dashboards restricted to teacher/admin
+app.post('/api/records', authMiddleware, async (req,res) => {
+  const allowedMonitorUsernames = ['morning','nap','clean','monitor'];
+  if (!(req.user.role === 'teacher' || req.user.role === 'admin' || allowedMonitorUsernames.includes(req.user.username))) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
   const { class_id, student_id, behavior_type_id, point_delta, note, occurred_at } = req.body;
   if (!student_id || !behavior_type_id) return res.status(400).json({ error: 'missing student_id or behavior_type_id' });
   try {
