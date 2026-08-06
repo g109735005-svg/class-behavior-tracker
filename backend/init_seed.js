@@ -90,10 +90,14 @@ async function seed() {
       await ensureBehavior(b[0], b[1], b[2]);
     }
 
-    // create some students for seed (if none)
+    // create students for seed (replace with provided class list)
     const existing = await db.query('SELECT id FROM students WHERE class_id=$1 LIMIT 1', [classId]);
     if (existing.rows.length === 0){
-      const names = ['陳小明','林大華','張小英','李美麗','王小強','劉志明','黃雅婷','吳俊宏','徐怡君','周柏均'];
+      const names = [
+        '李O恩','劉O洋','戴O瑄','吳O崎','郭O禾','洪O得','賴O允','王O宇','李O衡','黃O叡',
+        '莊O縢','郭O愷','李O祐','邱O懿','李O瑋','顏O桐','吳O娜','徐O恩','郭O君','張O涵',
+        '包O菲','羅O喬','李O瑄','林O芸','林O茵','劉O妍','翁O緹','邱O芯','何O芸','陳O初'
+      ];
       let no = 1;
       for (const n of names){
         await ensureStudent(classId, no++, n);
