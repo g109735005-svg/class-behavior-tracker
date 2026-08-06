@@ -18,6 +18,18 @@
     /* 左側：學生編號與姓名 */
     .left { min-width:260px }
 
+    /* 將學生姓名/座號改為按鈕 */
+    .student-btn {
+      background: transparent;
+      border: none;
+      padding: 0;
+      font-size: 16px;
+      color: #1976d2;
+      cursor: pointer;
+      text-align: left;
+    }
+    .student-btn:focus { outline: 2px solid #90caf9; border-radius: 4px }
+
     /* 按鈕容器：水平排列、必要時換行 */
     .buttons {
       display:flex;
@@ -425,23 +437,27 @@ async function loadStudents(){
       div.className = 'student';
       div.id = 'student-' + s.id;
 
-      // left: student no & name
+      // left: student no & name as a button
       const left = document.createElement('div');
       left.className = 'left';
-      left.innerHTML = `<div><strong>${s.student_no} - ${s.name}</strong></div>`;
+      const studentBtn = document.createElement('button');
+      studentBtn.className = 'student-btn';
+      studentBtn.innerHTML = `<strong>${s.student_no} - ${s.name}</strong>`;
 
-      // count badges (optional, hidden if not present)
-      const countsDiv = document.createElement('div');
-      countsDiv.className = 'counts';
-
-      const btns = document.createElement('div');
-      btns.className = 'buttons';
-
-      // Student row click applies selectedBehavior if any
-      div.onclick = async () => {
+      // Student button click applies selectedBehavior if any
+      studentBtn.onclick = async (evt) => {
+        evt.stopPropagation();
         if (!selectedBehavior){
           showToast('請先在上方選擇一個行為', 'info');
           return;
+        }
+        // ensure selectedBehavior has id/default_point when possible
+        if (!selectedBehavior.id && selectedBehavior && selectedBehavior.code) {
+          const resolved = btByCode(selectedBehavior.code);
+          if (resolved){
+            selectedBehavior.id = resolved.id;
+            selectedBehavior.default_point = resolved.default_point || 0;
+          }
         }
         // perform record creation
         try{
@@ -460,6 +476,11 @@ async function loadStudents(){
           showToast('記錄失敗', 'error');
         }
       };
+
+      left.appendChild(studentBtn);
+
+      const btns = document.createElement('div');
+      btns.className = 'buttons';
 
       div.appendChild(left);
       div.appendChild(btns);
