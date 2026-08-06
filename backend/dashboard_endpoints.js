@@ -4,10 +4,11 @@ module.exports = function(app, authMiddleware, roleAllowed, db){
   // GET /api/classes/:id/dashboard/points?from=YYYY-MM-DD&to=YYYY-MM-DD
   // GET /api/classes/:id/dashboard/behavior-breakdown
   // GET /api/classes/:id/dashboard/recent
-  // GET /api/classes/:id/students/:studentId/export  -> CSV export of student's records
-  // GET /api/classes/:id/export -> CSV export of entire class records
+  // GET /api/classes/:id/students/:studentId/export  -> CSV export of student's records (kept)
+  // GET /api/classes/:id/export -> XLSX export of entire class records (with optional from/to)
 
   const { parseISO, formatISO } = require('date-fns');
+  const ExcelJS = require('exceljs');
 
   app.get('/api/classes/:id/dashboard/rankings', authMiddleware, roleAllowed(['teacher','admin']), async (req,res) => {
     try {
@@ -168,10 +169,12 @@ module.exports = function(app, authMiddleware, roleAllowed, db){
     }
   });
 
-  // Export entire class records as CSV
+  // Export entire class records as XLSX with optional from/to date filters
   app.get('/api/classes/:id/export', authMiddleware, roleAllowed(['teacher','admin']), async (req,res) => {
     try {
       const classId = Number(req.params.id);
+      const from = req.query.from; // expected YYYY-MM-DD
+      const to = req.query.to;     // expected YYYY-MM-DD
 
       // ensure teacher owns class unless admin
       if (req.user.role === 'teacher'){
@@ -180,32 +183,54 @@ module.exports = function(app, authMiddleware, roleAllowed, db){
         if (c.rows[0].teacher_id !== req.user.id) return res.status(403).json({ error: 'forbidden' });
       }
 
+      // build query with optional date filters
+      let params = [classId];
+      let where = ' WHERE r.class_id = $1';
+      let idx = 2;
+      if (from) { where += ` AND r.occurred_at >= $${idx++}`; params.push(from + ' 00:00:00'); }
+      if (to)   { where += ` AND r.occurred_at <= $${idx++}`; params.push(to + ' 23:59:59'); }
+
       const sql = `
         SELECT s.student_no, s.name as student_name, r.occurred_at, b.label as behavior_label, r.point_delta, r.note, u.display_name as registrar_name
         FROM behavior_records r
         LEFT JOIN students s ON s.id = r.student_id
         LEFT JOIN behavior_types b ON b.id = r.behavior_type_id
         LEFT JOIN users u ON u.id = r.registrar_id
-        WHERE r.class_id = $1
+        ${where}
         ORDER BY s.student_no::int NULLS LAST, r.occurred_at ASC
       `;
-      const rows = await db.query(sql, [classId]);
+      const rows = await db.query(sql, params);
 
-      // build CSV
-      const escape = (v) => {
-        if (v === null || v === undefined) return '';
-        const s = String(v).replace(/"/g, '""');
-        return '"' + s + '"';
-      };
-      const header = ['student_no','student_name','occurred_at','behavior_label','point_delta','note','registrar_name'];
-      const csvRows = [header.join(',')];
+      // build XLSX using exceljs
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Class Records');
+      sheet.columns = [
+        { header: 'student_no', key: 'student_no', width: 12 },
+        { header: 'student_name', key: 'student_name', width: 24 },
+        { header: 'occurred_at', key: 'occurred_at', width: 24 },
+        { header: 'behavior_label', key: 'behavior_label', width: 24 },
+        { header: 'point_delta', key: 'point_delta', width: 12 },
+        { header: 'note', key: 'note', width: 40 },
+        { header: 'registrar_name', key: 'registrar_name', width: 20 }
+      ];
+
       for (const r of rows.rows){
-        csvRows.push([r.student_no || '', r.student_name || '', (r.occurred_at ? r.occurred_at.toISOString() : ''), r.behavior_label || '', r.point_delta || 0, r.note || '', r.registrar_name || ''].map(escape).join(','));
+        sheet.addRow({
+          student_no: r.student_no || '',
+          student_name: r.student_name || '',
+          occurred_at: r.occurred_at ? new Date(r.occurred_at) : '',
+          behavior_label: r.behavior_label || '',
+          point_delta: r.point_delta || 0,
+          note: r.note || '',
+          registrar_name: r.registrar_name || ''
+        });
       }
-      const csv = csvRows.join('\n');
-      res.setHeader('Content-Type','text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="class_${classId}_records.csv"`);
-      res.send(csv);
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="class_${classId}_records.xlsx"`);
+      return res.send(Buffer.from(buffer));
+
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'server error' });
