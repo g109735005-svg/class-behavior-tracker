@@ -72,6 +72,58 @@ app.get('/api/classes/:id/students', authMiddleware, async (req,res) => {
   res.json(r.rows);
 });
 
+// Atomic counter increment (A+B pattern)
+// POST /api/atomic-counter/increment
+// body: { key: string, deltaA: number, deltaB: number }
+// Returns: { key, total, valueA, valueB }
+const atomicCounters = new Map(); // In-memory atomic counter store
+
+app.post('/api/atomic-counter/increment', authMiddleware, roleAllowed(['teacher','admin']), async (req,res) => {
+  const { key, deltaA, deltaB } = req.body;
+  if (!key) return res.status(400).json({ error: 'key required' });
+  
+  try {
+    // Atomic operation: ensure both A and B are updated together
+    const current = atomicCounters.get(key) || { valueA: 0, valueB: 0 };
+    const newValueA = (current.valueA || 0) + (deltaA || 0);
+    const newValueB = (current.valueB || 0) + (deltaB || 0);
+    const total = newValueA + newValueB;
+    
+    // Atomically update the counter
+    atomicCounters.set(key, { valueA: newValueA, valueB: newValueB, total, updatedAt: new Date() });
+    
+    res.json({
+      key,
+      valueA: newValueA,
+      valueB: newValueB,
+      total,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// GET /api/atomic-counter/:key
+// Returns current value of atomic counter
+app.get('/api/atomic-counter/:key', authMiddleware, async (req,res) => {
+  const { key } = req.params;
+  try {
+    const current = atomicCounters.get(key) || { valueA: 0, valueB: 0 };
+    res.json({
+      key,
+      valueA: current.valueA || 0,
+      valueB: current.valueB || 0,
+      total: (current.valueA || 0) + (current.valueB || 0),
+      timestamp: current.updatedAt ? current.updatedAt.toISOString() : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // Create record
 app.post('/api/records', authMiddleware, roleAllowed(['teacher','admin']), async (req,res) => {
   const { class_id, student_id, behavior_type_id, point_delta, note, occurred_at } = req.body;
