@@ -5,12 +5,17 @@
   <title>Class Behavior Tracker</title>
   <style>
     body{font-family: Arial, sans-serif;padding:20px}
-    .student{border:1px solid #ddd;padding:8px;margin:8px 0;display:flex;justify-content:space-between;align-items:flex-start}
+    /* Each student is a single row */
+    .student{border-bottom:1px solid #eee;padding:8px 0;display:flex;justify-content:space-between;align-items:center}
     .student .left { min-width:260px }
     .groups { display:flex; gap:12px }
-    .group { border:1px solid #eee;padding:8px;border-radius:6px;background:#fafafa }
-    .group h4 { margin:0 0 8px 0;font-size:14px }
-    .buttons button{display:block;margin-bottom:6px;font-size:12px;padding:6px 8px}
+    .group { border:none;padding:0;background:transparent }
+    .group h4 { display:none }
+
+    /* Buttons arranged horizontally */
+    .buttons { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .buttons button{display:inline-block;margin:0;font-size:13px;padding:6px 8px;border-radius:6px}
+
     #login, #dashboard{max-width:1200px}
     #debugStatus{background:#fff8e1;border:1px solid #ffe082;padding:8px;margin:8px 0;border-radius:4px}
     
@@ -113,6 +118,9 @@ let me = null;
 let behaviorTypes = [];
 let myClass = null;
 
+// Monitors allowed to create records but not access exports/dashboards
+const ALLOWED_MONITORS = ['morning','nap','clean','monitor'];
+
 // group definitions (codes) - 三大分類
 const GROUPS = {
   add: {
@@ -197,10 +205,24 @@ async function showDashboard(){
   document.getElementById('login').style.display='none';
   document.getElementById('dashboard').style.display='block';
   document.getElementById('who').innerText = '登入者：' + me.display_name + ' ('+me.role+')';
-  if (me.role === 'teacher' || me.role === 'admin'){
+  const isTeacherOrAdmin = (me.role === 'teacher' || me.role === 'admin');
+  const isMonitor = ALLOWED_MONITORS.includes(me.username);
+
+  if (isTeacherOrAdmin || isMonitor){
     document.getElementById('teacherView').style.display='block';
-    // dashboard button
+
+    // 教師/管理員才顯示「查看儀表板」與「匯出全班」
+    if (!isTeacherOrAdmin){
+      document.getElementById('btnDashboard').style.display = 'none';
+      document.getElementById('btnExportAll').style.display = 'none';
+    } else {
+      document.getElementById('btnDashboard').style.display = 'inline-block';
+      document.getElementById('btnExportAll').style.display = 'inline-block';
+    }
+
+    // dashboard button (teachers only actually navigate)
     document.getElementById('btnDashboard').onclick = () => { window.location.href = '/dashboard.html'; };
+
     // export all button with from/to prompts
     document.getElementById('btnExportAll').onclick = async () => {
       try{
