@@ -90,14 +90,36 @@ async function seed() {
       await ensureBehavior(b[0], b[1], b[2]);
     }
 
-    // create students for seed (replace with provided class list)
+    // create students for seed (prefer reading from students/students.csv if present)
     const existing = await db.query('SELECT id FROM students WHERE class_id=$1 LIMIT 1', [classId]);
     if (existing.rows.length === 0){
-      const names = [
+      let names = [
         '李O恩','劉O洋','戴O瑄','吳O崎','郭O禾','洪O得','賴O允','王O宇','李O衡','黃O叡',
         '莊O縢','郭O愷','李O祐','邱O懿','李O瑋','顏O桐','吳O娜','徐O恩','郭O君','張O涵',
         '包O菲','羅O喬','李O瑄','林O芸','林O茵','劉O妍','翁O緹','邱O芯','何O芸','陳O初'
       ];
+
+      const csvPath = path.join(__dirname, '../students/students.csv');
+      if (fs.existsSync(csvPath)){
+        try{
+          const csv = fs.readFileSync(csvPath, 'utf8');
+          const lines = csv.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+          // if there's a header with comma, skip header
+          if (lines.length > 0 && lines[0].includes(',')){
+            const dataLines = lines.slice(1);
+            const parsed = dataLines.map(line => {
+              const parts = line.split(',');
+              return parts.length > 1 ? parts[1].trim() : parts[0].trim();
+            }).filter(Boolean);
+            if (parsed.length) names = parsed;
+          } else if (lines.length){
+            names = lines;
+          }
+        }catch(err){
+          console.warn('Failed to read students CSV, falling back to default names', err);
+        }
+      }
+
       let no = 1;
       for (const n of names){
         await ensureStudent(classId, no++, n);
